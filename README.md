@@ -44,6 +44,10 @@ The current demo includes:
 
 The program generates:
 
+## Outputs
+
+The program generates:
+
 ```text
 outputs/detected_peaks.csv
 outputs/figures/time_domain_iq.png
@@ -51,8 +55,6 @@ outputs/figures/fft_spectrum.png
 outputs/figures/spectrogram.png
 ```
 
-
-```markdown
 ## Example Figures
 
 ### Time-Domain IQ Signal
@@ -66,8 +68,8 @@ outputs/figures/spectrogram.png
 ### Spectrogram
 
 ![Spectrogram](outputs/figures/spectrogram.png)
-## Example Results
 
+## Example Results
 Detected peaks include:
 
 ```text
