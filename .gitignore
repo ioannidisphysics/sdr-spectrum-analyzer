@@ -20,3 +20,8 @@ Thumbs.db
 
 # Survey and sweep data files: a few MB each, regenerated from the hardware
 outputs/**/*.npz
+
+# The librtlsdr driver DLL: fetched from the RTL-SDR Blog release bundle,
+# not source of this project, and platform specific. See the README.
+rtlsdr.dll
+libusb-1.0.dll
