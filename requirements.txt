@@ -6,11 +6,20 @@ numpy
 scipy
 matplotlib
 
-# Real RTL-SDR capture. Needs librtlsdr on the system:
+# Real RTL-SDR capture. Pinned: 0.4.0 and later bind rtlsdr_set_dithering and
+# the GPIO calls, which the RTL-SDR Blog Windows build of librtlsdr does not
+# export, so importing them fails with AttributeError. 0.2.93 needs only up to
+# rtlsdr_set_bias_tee, which that build does have.
+# Needs librtlsdr on the system as well:
 #   Windows: RTL-SDR Blog driver bundle + Zadig (WinUSB), rtlsdr.dll on PATH
 #   Linux:   apt install librtlsdr-dev
 #   macOS:   brew install librtlsdr
-pyrtlsdr
+pyrtlsdr==0.2.93
+
+# pyrtlsdr 0.2.93 also imports pkg_resources, only to read its own version.
+# That module came with setuptools, which Python 3.12 stopped installing and
+# setuptools has since dropped. src/sdr_source.py stubs it rather than pinning
+# an old setuptools, so nothing extra is needed here.
 
 # Reading the NanoVNA Touchstone files for the antenna comparison.
 scikit-rf

@@ -25,10 +25,108 @@ Otherwise the receiver silently rescales itself between the antenna run and the
 reference run, and the difference of the two says nothing about the antenna.
 """
 
+import os
+import sys
+import types
+from pathlib import Path
+
 import numpy as np
 
 V4_FREQ_MIN_HZ = 24e6
 V4_FREQ_MAX_HZ = 1766e6
+
+# Folders searched for rtlsdr.dll on Windows, in order. The project root is
+# included so that dropping the DLLs next to main_sdr.py is enough.
+_DLL_SUBDIRS = ("", "dll", "rtlsdr", "lib", "x64")
+
+
+def _add_dll_directories():
+    """
+    Put librtlsdr on the DLL search path before pyrtlsdr is imported.
+
+    pyrtlsdr is only the Python wrapper. The actual work is done by
+    librtlsdr, which on Windows ships as rtlsdr.dll together with
+    libusb-1.0.dll, and pip does not install either. Since Python 3.8 the
+    current directory is no longer searched for DLLs, so the folder holding
+    them has to be registered explicitly.
+
+    Set the RTLSDR_DLL_DIR environment variable to point at them, or drop
+    rtlsdr.dll and libusb-1.0.dll next to main_sdr.py.
+
+    Returns
+    -------
+    list of str
+        Folders that were registered, for the error message if the import
+        still fails.
+    """
+
+    if os.name != "nt":
+        return []
+
+    root = Path(__file__).resolve().parent.parent
+    candidates = []
+
+    env_dir = os.environ.get("RTLSDR_DLL_DIR")
+    if env_dir:
+        candidates.append(Path(env_dir))
+    candidates += [root / sub if sub else root for sub in _DLL_SUBDIRS]
+
+    registered = []
+    for folder in candidates:
+        if not folder.is_dir():
+            continue
+        if not any((folder / n).is_file() for n in ("rtlsdr.dll", "librtlsdr.dll")):
+            continue
+        try:
+            os.add_dll_directory(str(folder))
+        except (AttributeError, OSError):
+            pass
+        os.environ["PATH"] = str(folder) + os.pathsep + os.environ.get("PATH", "")
+        registered.append(str(folder))
+
+    return registered
+
+
+def _ensure_pkg_resources():
+    """
+    Stand in for pkg_resources if it is missing.
+
+    pyrtlsdr 0.2.x does `import pkg_resources` at the top of its __init__ and
+    uses it for exactly one thing: reading its own version string, inside a
+    bare try/except that already tolerates failure. pkg_resources shipped as
+    part of setuptools, which Python 3.12 stopped installing by default and
+    which setuptools itself has since dropped, so on a current interpreter that
+    import raises and takes the whole package down with it.
+
+    Pinning an old setuptools for an unused version lookup is the wrong trade.
+    A stub whose lookup raises lets pyrtlsdr fall into the branch it already
+    has, leaving __version__ as 'unknown' and nothing else affected.
+
+    Returns
+    -------
+    bool
+        True if the stub was installed.
+    """
+
+    if "pkg_resources" in sys.modules:
+        return False
+
+    try:
+        import pkg_resources  # noqa: F401
+        return False
+    except ImportError:
+        pass
+
+    def _unavailable(*_args, **_kwargs):
+        raise RuntimeError("pkg_resources is not installed; version lookup skipped")
+
+    stub = types.ModuleType("pkg_resources")
+    stub.require = _unavailable
+    stub.get_distribution = _unavailable
+    stub.DistributionNotFound = RuntimeError
+    sys.modules["pkg_resources"] = stub
+
+    return True
 
 
 def open_sdr(sample_rate_hz, gain_db, freq_correction_ppm=0):
@@ -58,7 +156,22 @@ def open_sdr(sample_rate_hz, gain_db, freq_correction_ppm=0):
         What was actually applied, for the run metadata.
     """
 
-    from rtlsdr import RtlSdr  # imported here so the module loads without hardware
+    searched = _add_dll_directories()
+    _ensure_pkg_resources()
+
+    try:
+        from rtlsdr import RtlSdr  # imported here so the module loads without hardware
+    except ImportError as exc:
+        raise ImportError(
+            "librtlsdr could not be loaded. pip installs pyrtlsdr, the Python "
+            "wrapper, but not the driver library itself.\n"
+            "  Windows: get the RTL-SDR Blog release bundle, run Zadig once to put "
+            "the device on WinUSB, then copy rtlsdr.dll and libusb-1.0.dll (the 64 bit "
+            "ones, to match your Python) next to main_sdr.py, or set RTLSDR_DLL_DIR "
+            "to the folder holding them.\n"
+            "  Linux: apt install librtlsdr-dev.   macOS: brew install librtlsdr.\n"
+            f"  Folders searched and registered this run: {searched or 'none'}"
+        ) from exc
 
     sdr = RtlSdr()
     sdr.sample_rate = sample_rate_hz

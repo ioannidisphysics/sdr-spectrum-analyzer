@@ -17,3 +17,6 @@ Thumbs.db
 
 # Optional: temporary files
 *.log
+
+# Survey and sweep data files: a few MB each, regenerated from the hardware
+outputs/**/*.npz

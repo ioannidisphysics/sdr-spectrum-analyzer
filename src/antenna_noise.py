@@ -71,6 +71,39 @@ def antenna_noise_delta(freqs_ant, psd_ant, freqs_ref, psd_ref, smooth_bins=201)
     return freqs_ant, delta_db, moving_average_db(delta_db, smooth_bins)
 
 
+def rise_summary(freqs_hz, delta_smooth_db, search_lo_hz=None, search_hi_hz=None,
+                 usable_db=3.0):
+    """
+    Is there enough noise rise for the peak to mean anything?
+
+    The method only works while external noise dominates the receiver's own.
+    When it does not, the difference of the two sweeps is flat at 0 dB except
+    at transmitters, and argmax returns the strongest broadcast carrier in the
+    search range rather than the antenna's resonance. That failure is silent:
+    the number looks like a measurement.
+
+    A robust measure of the broadband rise is the median of the smoothed
+    difference, which ignores the transmitters. Below usable_db the trace is
+    receiver-noise-limited and the peak should not be quoted.
+
+    Returns
+    -------
+    dict with median_db, p90_db, usable (bool) and usable_db.
+    """
+
+    mask = np.ones(len(freqs_hz), dtype=bool)
+    if search_lo_hz is not None:
+        mask &= freqs_hz >= search_lo_hz
+    if search_hi_hz is not None:
+        mask &= freqs_hz <= search_hi_hz
+
+    d = delta_smooth_db[mask]
+    median = float(np.median(d))
+
+    return dict(median_db=median, p90_db=float(np.percentile(d, 90)),
+                usable=median >= usable_db, usable_db=usable_db)
+
+
 def find_peak(freqs_hz, delta_smooth_db, search_lo_hz=None, search_hi_hz=None):
     """
     Frequency of maximum noise rise, with a parabolic refinement.
