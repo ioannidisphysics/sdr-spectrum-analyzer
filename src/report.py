@@ -227,19 +227,34 @@ def build_markdown(
                                         if np.isfinite(d.get("fm_offset_hz", np.nan))]))
         ppm = 1e6 * median_hz / reference_hz
 
+        spread_hz = float(np.std(offsets, ddof=1)) if len(offsets) > 1 else 0.0
+        spread_ppm = 1e6 * spread_hz / reference_hz
+
         add("## Frequency axis check")
         add("")
         add("FM broadcast carriers in Region 1 sit on odd multiples of 100 kHz, which")
-        add("makes the band a free frequency reference. The offset between the detected")
-        add("carriers and their channels is the crystal error of the receiver plus what")
-        add("the sweep stitching contributes.")
+        add("makes the band a free frequency reference. Two different things show up in")
+        add("the offset between the detected carriers and their channels, and they have")
+        add("to be read separately: a reference oscillator that is off is the same")
+        add("fraction on every carrier and appears in the mean, while the limit on how")
+        add("well a carrier can be located appears in the spread. The RTL-SDR Blog V4")
+        add("has a 1 ppm TCXO, so on that receiver the mean should be small.")
         add("")
         add(f"- Carriers matched: **{len(offsets)}**")
         add(f"- Median offset: **{median_hz/1e3:+.2f} kHz**, which at {reference_hz/1e6:.0f} MHz "
             f"is **{ppm:+.1f} ppm**")
-        add(f"- Spread: {np.std(offsets, ddof=1)/1e3:.2f} kHz standard deviation")
+        add(f"- Spread: {spread_hz/1e3:.2f} kHz, or {spread_ppm:.1f} ppm")
         add("")
-        add(f"Passing `--ppm {ppm:+.0f}` to the capture removes most of this.")
+
+        if abs(ppm) > spread_ppm > 0:
+            add(f"The mean is larger than the spread, which is the signature of a reference")
+            add(f"error rather than of the measurement. Passing `--ppm {ppm:+.0f}` to the")
+            add("capture removes most of it.")
+        else:
+            add("The spread is as large as the mean, so this is dominated by how well a")
+            add("carrier can be located in the trace, not by the receiver's reference.")
+            add("There is nothing here worth correcting with `--ppm`.")
+
         add("")
 
     # -----------------------------

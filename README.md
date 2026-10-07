@@ -1,10 +1,18 @@
 # SDR Spectrum Analyzer & Signal Analysis Toolkit
 
 A spectrum analyser written in Python and driven from an RTL-SDR Blog V4. It
-does three things: it surveys everything the receiver can hear between 24 and
-1766 MHz and reports what is on the air, it measures an antenna's resonance
-from the rise in the receiver's own noise floor, and it analyses synthetic IQ
-signals for development and teaching.
+surveys everything the receiver can hear between 24 and 1766 MHz and reports
+what is on the air, it checks its own amplitude and frequency scales against
+references outside itself, and it analyses synthetic IQ signals for
+development and teaching.
+
+It was also used to try to measure an antenna's resonance from the rise in the
+receiver's own noise floor. **That did not work.** At UHF the antenna is
+looking at ground and buildings at roughly the temperature of the 50 ohm load
+it is being compared against, so there is almost nothing to measure; at VHF,
+where there would be, the sweeps were taken at too low a tuner gain. The
+negative result is kept in full below, because it is the part of this project
+that reaches a conclusion.
 
 The analysis chain is validated rather than assumed. A simulated source builds
 IQ samples whose power spectral density is known by construction, and
@@ -23,7 +31,7 @@ PASS: worst error 0.069 dB, within 0.50 dB
 - [What it does](#what-it-does)
 - [Install](#install)
 - [Wideband survey](#wideband-survey)
-- [Antenna resonance from the noise floor](#antenna-resonance-from-the-noise-floor)
+- [Antenna resonance from the noise floor: a negative result](#antenna-resonance-from-the-noise-floor-a-negative-result)
 - [Synthetic signal analysis](#synthetic-signal-analysis)
 - [How it works](#how-it-works)
 - [Validation](#validation)
@@ -128,10 +136,12 @@ python main_sdr.py report --label home --snr 6 --zooms 10
 python main_sdr.py report --label home --floor-window 80
 ```
 
-## Antenna resonance from the noise floor
+## Antenna resonance from the noise floor: a negative result
 
-A matched antenna delivers far more external noise into the receiver than a
-50 ohm resistor does. Sweeping a band twice, once with each on the input, and
+A matched antenna delivers more external noise into the receiver than a 50 ohm
+resistor does — *where what the antenna is looking at is hotter than the
+resistor*. That condition is the whole method, and it is the condition that
+failed here. Sweeping a band twice, once with each on the input, and
 subtracting gives a difference that peaks where the antenna is matched. The
 receiver's own gain, conversion loss and ADC scaling are unknown, but they are
 the *same* unknown in both sweeps, so they cancel: the measurement is designed
@@ -163,16 +173,32 @@ sweeps is flat at zero except where a transmitter is on the air:
 | B | 160 – 310 | 29.7 | +0.05 |
 | C | 400 – 780 | 29.7 | +0.85 |
 
-The reason is the noise figure of the receiver. A rise of 3 dB needs the
-external noise arriving through the antenna to equal the receiver's own; the
-rise actually seen, under 1 dB, means the receiver is 6 dB or more louder than
-the sky. Backing the tuner gain off raises the noise figure roughly dB for dB,
-and at 19.7 dB — 30 dB below this tuner's maximum — the receiver drowns
-everything the antenna delivers.
+**There are two reasons, and the first one is fatal at UHF.** What an antenna
+delivers is set by its noise temperature, which is the temperature of whatever
+it is looking at. A 50 ohm resistor delivers 290 K. An antenna lying horizontal
+on a roof at 600 MHz sees cold sky over part of its pattern and ground,
+parapet and neighbouring buildings at about 290 K over the rest, and the sky is
+quiet up there: galactic noise has fallen away with frequency and what remains
+is a few tens of kelvin. The antenna's noise temperature therefore lands near
+290 K as well, and **even a noiseless receiver would see almost no difference
+between the antenna and the load**. Setups C and D were swept at 400–780 and
+670–1300 MHz. This method cannot work in those bands at any gain. It belongs at
+VHF and below, where galactic and man-made noise put the antenna thousands of
+kelvin above the load and the difference is tens of dB.
 
-The four sweeps are their own evidence for that explanation rather than an
-appeal to theory: **the two runs at 29.7 dB show a rise, the two at 19.7 dB
-show none**, and the gain is the only thing that differs.
+The second reason applies to the two VHF sweeps, where there was something to
+see. The receiver's own noise has to sit below what the antenna delivers, and
+backing the tuner gain off raises the noise figure roughly dB for dB. Setup A
+was swept at 19.7 dB, some 30 dB below this tuner's maximum.
+
+**The four sweeps cannot separate the two reasons.** Band and gain change
+together down the table, so an earlier reading of it — that the two runs at
+29.7 dB show a rise and the two at 19.7 dB do not — does not survive its own
+numbers: setup B was at 29.7 dB and rose by 0.05 dB, which is nothing. Only
+setup C rose at all, by 0.85 dB, and C sits in the band where the
+noise-temperature argument says the rise should be smallest. **That 0.85 dB is
+not explained here.** The experiment that separates the variables is one band
+and one antenna swept at two gains, and it was not done.
 
 ![Setup C, antenna against load](outputs/figures/C_antenna_vs_C_load.png)
 
@@ -196,11 +222,13 @@ Without that check the same run reports a resonance at 162.98 MHz for an
 antenna the VNA puts at 143.22 MHz, and nothing in the output hints that the
 number came from a broadcast carrier. The threshold is `--min-rise`.
 
-**What to change before repeating it.** Raise the tuner gain to the highest
-value that does not trip the clipping warning in `capture`, which is likely to
-be near 40 dB at UHF and lower at VHF, where broadcast FM overloads the front
-end from outside the swept band. An FM band-stop filter ahead of the receiver
-is what makes high gain usable at VHF.
+**What to change before repeating it.** Sweep setup A or B and leave C and D
+alone: the two VHF setups are the only ones where the sky is loud enough for
+the method to have a margin. Raise the tuner gain to the highest value that
+does not trip the clipping warning in `capture` — near 40 dB at UHF, lower at
+VHF, where broadcast FM overloads the front end from outside the swept band.
+An FM band-stop filter ahead of the receiver is what makes high gain usable
+there, and it is the single piece of hardware this measurement is missing.
 
 ## Synthetic signal analysis
 
@@ -310,10 +338,14 @@ the report does so with the test that settles each one:
 ### A free frequency reference
 
 FM broadcast carriers in Region 1 sit on odd multiples of 100 kHz, so the
-offset between the detected carriers and their channels is the crystal error
-of the receiver plus whatever the stitching contributes. The report measures
-it across every FM carrier it found, converts it to ppm and prints the
-`--ppm` correction to pass back to the capture.
+offset between the detected carriers and their channels measures the frequency
+axis against something outside this repository. The report prints the mean and
+the spread of that offset across every carrier it found, and the two mean
+different things: a reference oscillator that is off is the same fraction on
+every carrier and shows up in the mean, while the limit on how well a carrier's
+position can be read shows up in the spread. Only the mean is worth correcting
+with `--ppm`, and only when it is larger than the spread. This dongle is a V4,
+whose reference is a 1 ppm TCXO, so it usually is not.
 
 ## Validation
 
@@ -359,24 +391,37 @@ them is an absolute check:
       36         594       593.980       7.56      -19.7    -33.2
       43         650       650.000       7.60       -0.4     -0.7
       48         690       689.989       7.58      -10.9    -15.8
-      57         762       763.002       9.06     1002.5   1315.6  partial block, not counted
-      58         770       773.026       9.23     3025.5   3929.2  partial block, not counted
+       -           -       763.002       9.06          -        -  not television: 5G 700, 3GPP n28, uplink 703-733, downlink 758-788
+       -           -       773.026       9.23          -        -  not television: 5G 700, 3GPP n28, uplink 703-733, downlink 758-788
 
-5 clean multiplexes
+5 clean multiplexes, 2 blocks not counted
 mean occupied bandwidth 7.58 MHz against the DVB-T figure of 7.61 MHz
 frequency error -10.0 ppm, spread 16.8 ppm
+the spread is larger than the mean, so this is dominated by how well the block edges can be located, not by the receiver's reference
 ```
 
 Five multiplexes land on the 8 MHz raster within 20 kHz, and their measured
 occupied bandwidth agrees with the standard to 0.4%. The stitching, the
-retuning and the Welch axis are therefore right to about 30 ppm, which is the
-crystal error of an uncorrected RTL-SDR and is the limit of this check rather
-than of the analyser: the 201 bin smoothing needed to find the block edges
-already blurs them by ±90 kHz.
+retuning and the Welch axis are therefore right to about 30 ppm, which at
+600 MHz is 18 kHz.
 
-The two blocks at the top of the sweep are wider than a multiplex and are
-excluded automatically. They are adjacent channels merged into one run, which
-is what the width test is for.
+**That 30 ppm is the measurement, not the dongle.** The V4's reference is a
+1 ppm TCXO, so a crystal error of this size is not available as an
+explanation, and the shape of the numbers says the same: an oscillator error
+is the same fraction on every channel and would show as a mean with a small
+spread, while here the spread is 17 ppm against a mean of −10. What limits the
+check is locating the edges of a block whose shoulders the 201 bin smoothing
+has already blurred by ±90 kHz, and taking a centre from them. Fitting the
+whole block shape instead of thresholding its edges would tighten it, with the
+same comb as the reference.
+
+**The two blocks above 694 MHz are not television.** They are 10 MHz carriers
+in 3GPP band n28, whose downlink runs 758 to 788 MHz. That band was taken away
+from broadcasting in the second digital dividend and auctioned to the mobile
+operators, in Greece in December 2020, so the UHF television comb now stops at
+channel 48 — 690 MHz — and `raster_check.py` stops with it. An earlier version
+ran the comb to channel 60, which labelled these two as channels 57 and 58 and
+then reported them as television that was 1 and 3 MHz off frequency.
 
 ## Limits
 
@@ -395,11 +440,14 @@ is what the width test is for.
   Widening `--floor-window` is the first thing to try.
 - **An overloaded front end invents signals.** The flags are the first check,
   reducing the gain is the second.
-- **The antenna-against-load method needs the sky to be louder than the
-  receiver.** Below about 3 dB of broadband rise the difference carries no
-  information about the antenna, and `compare` reports that rather than a
-  frequency. High tuner gain is what buys the margin, and a strong out of band
-  transmitter is what takes it away.
+- **The antenna-against-load method needs the sky to be hotter than the load,
+  and the receiver quieter than both.** Above roughly 300 MHz the first
+  condition fails on its own: the antenna sees ground and buildings at about
+  290 K, which is what the resistor delivers, so there is no difference to
+  find at any gain. Below about 3 dB of broadband rise the difference carries
+  no information about the antenna, and `compare` reports that rather than a
+  frequency. High tuner gain is what buys the margin at VHF, and a strong out
+  of band transmitter is what takes it away.
 - **The tuner stops at 1766 MHz.** Wi-Fi, Bluetooth and the 2.45 GHz patch
   antenna are above it and need a downconverter.
 
